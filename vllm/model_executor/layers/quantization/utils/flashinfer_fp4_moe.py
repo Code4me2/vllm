@@ -47,9 +47,9 @@ __all__ = [
 
 
 def _supports_current_device() -> bool:
-    """Supports only Blackwell-family GPUs."""
+    """Supports only Blackwell-family GPUs (SM100+)."""
     p = current_platform
-    return p.is_cuda() and p.is_device_capability_family(100)
+    return p.is_cuda() and p.has_device_capability(100)
 
 
 def _supports_no_act_and_mul() -> bool:
@@ -138,7 +138,7 @@ def is_flashinfer_fp4_cutedsl_moe_available() -> bool:
         envs.VLLM_USE_FLASHINFER_MOE_FP4
         and has_flashinfer_cutedsl_grouped_gemm_nt_masked()
         and current_platform.is_cuda()
-        and current_platform.is_device_capability_family(100)
+        and current_platform.has_device_capability(100)
     )
 
 
@@ -169,6 +169,7 @@ def prepare_static_weights_for_trtllm_fp4_moe(
     hidden_size,
     intermediate_size,
     num_experts,
+    is_act_and_mul: bool = True,
 ):
     from flashinfer import nvfp4_block_scale_interleave
     from flashinfer.fused_moe.core import (
@@ -180,14 +181,18 @@ def prepare_static_weights_for_trtllm_fp4_moe(
     """Prepare quantized weights for kernel (done offline with weights)."""
     epilogue_tile_m = 128  # FIXME: this depends on the kernel internals
 
+    # For gated MLPs (is_act_and_mul=True), w13 contains [w1, w3] merged (2x size).
+    # For non-gated MLPs (is_act_and_mul=False), w13 contains only w1 (1x size).
+    w13_multiplier = 2 if is_act_and_mul else 1
+
     # Convert quantized weights to proper formats
     gemm1_weights_fp4 = gemm1_weights.view(torch.float8_e4m3fn).reshape(
-        num_experts, 2 * intermediate_size, hidden_size // 2
+        num_experts, w13_multiplier * intermediate_size, hidden_size // 2
     )  # packed fp4
     gemm1_scales_linear_fp4 = gemm1_scales_linear_fp4_bytes.view(
         torch.float8_e4m3fn
     ).reshape(
-        num_experts, 2 * intermediate_size, hidden_size // 16
+        num_experts, w13_multiplier * intermediate_size, hidden_size // 16
     )  # fp8 scaling factors
 
     gemm2_weights_fp4 = gemm2_weights.view(torch.float8_e4m3fn).reshape(
@@ -524,8 +529,9 @@ def prepare_nvfp4_moe_layer_for_fi_or_cutlass(
             w13_scale,
             w2_scale,
             w2.size(-2),  # hidden_size
-            w13.size(-2) // 2,  # intermediate_size
+            w13.size(-2) // (2 if is_act_and_mul else 1),  # intermediate_size
             w13.size(0),  # num_experts
+            is_act_and_mul=is_act_and_mul,
         )
 
         # We do not need to make this a parameter, because

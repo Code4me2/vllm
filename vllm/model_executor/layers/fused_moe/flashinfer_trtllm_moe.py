@@ -28,10 +28,10 @@ from vllm.utils.torch_utils import direct_register_custom_op
 
 
 def _supports_current_device() -> bool:
-    """Supports only Blackwell-family GPUs."""
+    """Supports only Blackwell-family GPUs (SM100+)."""
     p = current_platform
     # Add check flashinfer trtllm is available
-    return p.is_cuda() and p.is_device_capability_family(100)
+    return p.is_cuda() and p.has_device_capability(100)
 
 
 def _supports_no_act_and_mul() -> bool:

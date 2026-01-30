@@ -88,7 +88,7 @@ class FlashInferExperts(mk.FusedMoEPermuteExpertsUnpermute):
             current_platform.is_cuda()
             and (
                 current_platform.is_device_capability((9, 0))
-                or current_platform.is_device_capability_family(100)
+                or current_platform.has_device_capability(100)
             )
             and has_flashinfer_cutlass_fused_moe()
         )
@@ -124,7 +124,7 @@ class FlashInferExperts(mk.FusedMoEPermuteExpertsUnpermute):
             )
             or (
                 (scheme == (kNvfp4Static, kNvfp4Dynamic))
-                and (p.is_device_capability_family(100))
+                and (p.has_device_capability(100))
             )
         )
 
